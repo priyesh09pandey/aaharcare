@@ -1,0 +1,145 @@
+{
+  "version": 1,
+  "sdk_version": "3.0.5",
+  "path": "/mcp",
+  "auth": {
+    "type": "oauth",
+    "issuer": "https://xosdfjmqdfxzqurgiuvv.supabase.co/auth/v1",
+    "accepted_audiences": [
+      "authenticated"
+    ]
+  },
+  "mcp": {
+    "server": {
+      "name": "dietary-solutions-hub",
+      "version": "0.1.0",
+      "title": "Dietary Solutions Hub"
+    },
+    "tools": [
+      {
+        "name": "list_conditions",
+        "title": "List diet plan conditions",
+        "description": "List every condition AaharCare offers a 30-day therapeutic diet plan for, with its slug, tagline, daily energy target and monthly ration price in INR.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "get_diet_plan",
+        "title": "Get a 30-day diet plan",
+        "description": "Return the full 30-day diet plan for one condition: daily meals with timings and exact quantities, weekly progression, foods to avoid, and the priced monthly grocery list.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "slug": {
+              "type": "string",
+              "description": "Condition slug from list_conditions, e.g. 'type-2-diabetes'."
+            }
+          },
+          "required": [
+            "slug"
+          ],
+          "additionalProperties": false
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "list_packages",
+        "title": "List purchasable packages",
+        "description": "List AaharCare's monthly packages (plan only, plan plus ration box, full clinical care) with their price in INR and what each one includes.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "list_my_orders",
+        "title": "List my orders",
+        "description": "List the signed-in customer's diet package orders with status, amount and condition.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "list_my_questions",
+        "title": "List my expert questions",
+        "description": "List questions the signed-in customer has asked AaharCare's dietitians, with any replies.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "ask_expert",
+        "title": "Ask a dietitian",
+        "description": "Send a new question to AaharCare's dietitian panel on behalf of the signed-in customer. Replies appear in their account within 24 hours.",
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "question": {
+              "type": "string",
+              "minLength": 10,
+              "maxLength": 2000,
+              "description": "The health or diet question."
+            },
+            "condition_slug": {
+              "description": "Optional condition slug from list_conditions.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "question"
+          ],
+          "additionalProperties": false
+        },
+        "outputSchema": null
+      }
+    ]
+  }
+}
