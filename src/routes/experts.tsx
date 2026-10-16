@@ -21,8 +21,8 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { MessageCircle, Clock, ShieldCheck } from "lucide-react";
-import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { askSpecialistQuestion } from "@/lib/auth-store";
 import { useAuth } from "@/hooks/useAuth";
 
 
@@ -113,15 +113,11 @@ function ExpertsPage() {
     }
     if (user) {
       const slug = conditions.find((c) => c.name === cond)?.slug ?? conditions[0]!.slug;
-      const { error } = await supabase.from("questions").insert({
-        user_id: user.id,
-        condition_slug: slug,
+      await askSpecialistQuestion({
+        userId: user.id,
+        conditionSlug: slug,
         body: text.trim(),
       });
-      if (error) {
-        toast.error(error.message);
-        return;
-      }
     }
     setQuestions((prev) => [
       { id: Date.now(), name: name.trim(), condition: cond, question: text.trim() },

@@ -14,7 +14,10 @@ const nav = [
 
 export function SiteHeader() {
   const [open, setOpen] = useState(false);
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
+  const firstName = user?.user_metadata?.full_name
+    ? user.user_metadata.full_name.split(" ")[0]
+    : "My account";
 
 
   return (
@@ -45,14 +48,14 @@ export function SiteHeader() {
 
         <div className="flex items-center gap-2">
           {isAuthenticated ? (
-            <Button asChild size="sm" variant="outline" className="hidden md:inline-flex">
+            <Button asChild size="sm" variant="outline" className="hidden md:inline-flex gap-1.5">
               <Link to="/account">
-                <UserRound className="size-4" /> My account
+                <UserRound className="size-4 text-primary" /> {firstName}
               </Link>
             </Button>
           ) : (
             <Button asChild size="sm" variant="ghost" className="hidden md:inline-flex">
-              <Link to="/auth">Sign in</Link>
+              <Link to="/auth">Sign in / Register</Link>
             </Button>
           )}
           <Button asChild size="sm" className="hidden md:inline-flex">
