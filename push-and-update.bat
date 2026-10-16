@@ -13,7 +13,7 @@ git add .
 
 echo.
 echo [2/3] Committing fixes...
-git commit -m "Fix: add robust fallback for Supabase and safe auth to prevent page load crash"
+git commit -m "update: sync latest features and fixes"
 
 echo.
 echo [3/3] Pushing to GitHub (origin main)...
