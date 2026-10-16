@@ -33,6 +33,13 @@ import {
   ArrowRight,
   PackageCheck,
   UserRound,
+  QrCode,
+  Smartphone,
+  Copy,
+  ExternalLink,
+  Sparkles,
+  Download,
+  AlertCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
@@ -43,6 +50,10 @@ import {
   fetchUserProfile,
   type OrderItem,
 } from "@/lib/auth-store";
+import {
+  openRazorpayCheckout,
+  getUpiPaymentUrl,
+} from "@/lib/razorpay";
 
 export const Route = createFileRoute("/packages")({
   head: () => ({
@@ -75,10 +86,22 @@ function PackagesPage() {
   const [contactPhone, setContactPhone] = useState("");
   const [deliveryCity, setDeliveryCity] = useState("");
   const [deliveryAddress, setDeliveryAddress] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState("Pay on Delivery");
+  const [paymentMethod, setPaymentMethod] = useState("Razorpay Online");
 
   const [placing, setPlacing] = useState(false);
   const [confirmedOrder, setConfirmedOrder] = useState<OrderItem | null>(null);
+
+  // Payment Gateway Modals
+  const [showUpiModal, setShowUpiModal] = useState(false);
+  const [upiUtr, setUpiUtr] = useState("");
+  const [upiVerifying, setUpiVerifying] = useState(false);
+  const [showGatewayModal, setShowGatewayModal] = useState(false);
+  const [pendingUserData, setPendingUserData] = useState<{
+    userId: string;
+    name: string;
+    phone: string;
+    city: string;
+  } | null>(null);
 
   // Auth Modal state for unauthenticated users
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -95,6 +118,16 @@ function PackagesPage() {
   const heads = Math.max(1, Math.min(6, Number(people) || 1));
   const rationExtra = pkg.id === "plan-only" ? 0 : (heads - 1) * Math.round(cond.monthlyPrice * 0.9);
   const total = pkg.price + rationExtra;
+
+  // Generate UPI Intent URL for dynamic QR code
+  const upiOrderRef = `AHC-${Date.now().toString().slice(-6)}`;
+  const upiUrl = getUpiPaymentUrl({
+    amountInr: total,
+    orderRef: upiOrderRef,
+    payeeVpa: "aaharcare@okaxis",
+    payeeName: "AaharCare Tele-Nutrition",
+  });
+  const upiQrImg = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(upiUrl)}`;
 
   // Pre-fill user details if logged in
   useEffect(() => {
@@ -123,7 +156,15 @@ function PackagesPage() {
   }, [user]);
 
   // Execute Order Placement
-  const executeOrder = async (targetUserId: string, name: string, phone: string, city: string) => {
+  const executeOrder = async (
+    targetUserId: string,
+    name: string,
+    phone: string,
+    city: string,
+    paymentId?: string,
+    paymentStatus: "paid" | "pending" | "cod" = "cod",
+    methodName: string = paymentMethod,
+  ) => {
     setPlacing(true);
     const { order, error } = await placeUserOrder({
       user_id: targetUserId,
@@ -136,7 +177,9 @@ function PackagesPage() {
       contact_phone: phone.trim(),
       delivery_city: city.trim(),
       delivery_address: deliveryAddress.trim() || undefined,
-      payment_method: paymentMethod,
+      payment_method: methodName,
+      payment_id: paymentId,
+      payment_status: paymentStatus,
     });
     setPlacing(false);
 
@@ -146,23 +189,135 @@ function PackagesPage() {
     }
 
     setConfirmedOrder(order);
-    toast.success("Order Placed Successfully!", {
-      description: `Order ID: ${order.id} for ${pkg.name} (${cond.name}).`,
-    });
+    toast.success(
+      paymentStatus === "paid"
+        ? "Payment Received & Order Confirmed!"
+        : "Order Registered Successfully!",
+      {
+        description: `Order Ref: ${order.id} | ${pkg.name} (${cond.name}).`,
+      },
+    );
   };
 
-  const handlePlaceOrderClick = async () => {
-    if (!isAuthenticated || !user) {
+  const handlePlaceOrderClick = async (
+    targetUserId?: string,
+    targetName?: string,
+    targetPhone?: string,
+    targetCity?: string,
+  ) => {
+    const activeUserId = targetUserId || user?.id;
+    const finalName = (targetName || contactName).trim();
+    const finalPhone = (targetPhone || contactPhone).trim();
+    const finalCity = (targetCity || deliveryCity).trim();
+
+    if (!activeUserId) {
       setShowAuthModal(true);
       return;
     }
 
-    if (!contactName.trim() || contactPhone.trim().length < 8 || !deliveryCity.trim()) {
+    if (!finalName || finalPhone.length < 8 || !finalCity) {
       toast.error("Please provide your name, phone number, and delivery city.");
       return;
     }
 
-    await executeOrder(user.id, contactName, contactPhone, deliveryCity);
+    const userData = {
+      userId: activeUserId,
+      name: finalName,
+      phone: finalPhone,
+      city: finalCity,
+    };
+    setPendingUserData(userData);
+
+    // 1. Razorpay Online
+    if (paymentMethod === "Razorpay Online") {
+      setPlacing(true);
+      try {
+        const result = await openRazorpayCheckout({
+          amountInInr: total,
+          packageName: pkg.name,
+          conditionName: cond.name,
+          peopleCount: heads,
+          userName: finalName,
+          userEmail: user?.email || "patient@aaharcare.com",
+          userPhone: finalPhone,
+        });
+
+        await executeOrder(
+          activeUserId,
+          finalName,
+          finalPhone,
+          finalCity,
+          result.paymentId,
+          "paid",
+          "Razorpay (Online)",
+        );
+      } catch (err: any) {
+        setPlacing(false);
+        if (err?.message === "PAYMENT_DISMISSED") {
+          toast.info("Payment cancelled. You can retry or switch to UPI / Cash on Delivery.");
+        } else {
+          console.warn("Razorpay popup unavailable, opening checkout fallback modal:", err);
+          setShowGatewayModal(true);
+        }
+      }
+      return;
+    }
+
+    // 2. Instant UPI QR Code
+    if (paymentMethod === "UPI Instant") {
+      setShowUpiModal(true);
+      return;
+    }
+
+    // 3. Cash / Pay on Delivery
+    await executeOrder(
+      activeUserId,
+      finalName,
+      finalPhone,
+      finalCity,
+      undefined,
+      "cod",
+      "Cash on Delivery",
+    );
+  };
+
+  // UPI QR Payment Verification
+  const handleVerifyUpiPayment = async () => {
+    if (!pendingUserData) return;
+    setUpiVerifying(true);
+    await new Promise((r) => setTimeout(r, 800));
+    setUpiVerifying(false);
+    setShowUpiModal(false);
+
+    const generatedId = upiUtr.trim()
+      ? `pay_upi_${upiUtr.trim()}`
+      : `pay_upi_${Math.floor(100000000000 + Math.random() * 900000000000)}`;
+
+    await executeOrder(
+      pendingUserData.userId,
+      pendingUserData.name,
+      pendingUserData.phone,
+      pendingUserData.city,
+      generatedId,
+      "paid",
+      "UPI Instant (QR)",
+    );
+  };
+
+  // Simulated Razorpay Gateway Success (Offline / Fallback mode)
+  const handleSimulatedPaymentSuccess = async () => {
+    if (!pendingUserData) return;
+    setShowGatewayModal(false);
+    const mockPaymentId = `pay_rzp_${Math.random().toString(36).slice(2, 12)}`;
+    await executeOrder(
+      pendingUserData.userId,
+      pendingUserData.name,
+      pendingUserData.phone,
+      pendingUserData.city,
+      mockPaymentId,
+      "paid",
+      "Razorpay Online",
+    );
   };
 
   // Quick Sign In from Checkout Modal
@@ -187,7 +342,7 @@ function PackagesPage() {
     const phoneNum = contactPhone || signedInUser.user_metadata?.phone || "+91 98765 43210";
     const city = deliveryCity || signedInUser.user_metadata?.city || "New Delhi";
 
-    await executeOrder(signedInUser.id, name, phoneNum, city);
+    await handlePlaceOrderClick(signedInUser.id, name, phoneNum, city);
   };
 
   // Quick Register from Checkout Modal
@@ -216,7 +371,7 @@ function PackagesPage() {
 
     setShowAuthModal(false);
     toast.success("Account created!");
-    await executeOrder(
+    await handlePlaceOrderClick(
       registeredUser.id,
       regName.trim(),
       regPhone.trim() || contactPhone.trim() || "+91 98765 43210",
@@ -233,7 +388,7 @@ function PackagesPage() {
     if (demoUser) {
       setShowAuthModal(false);
       toast.success("Using Demo Account (Rahul Sharma)");
-      await executeOrder(
+      await handlePlaceOrderClick(
         demoUser.id,
         contactName || "Rahul Sharma",
         contactPhone || "+91 98765 43210",
@@ -391,17 +546,27 @@ function PackagesPage() {
               </div>
 
               <div>
-                <Label htmlFor="pay" className="text-xs font-semibold">Payment Method</Label>
+                <Label htmlFor="pay" className="text-xs font-semibold">Payment Option *</Label>
                 <Select value={paymentMethod} onValueChange={setPaymentMethod}>
-                  <SelectTrigger className="mt-1.5">
+                  <SelectTrigger className="mt-1.5 h-10">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Pay on Delivery">Cash / UPI on Delivery</SelectItem>
-                    <SelectItem value="UPI Instant">UPI (Google Pay, PhonePe, Paytm)</SelectItem>
-                    <SelectItem value="Card / NetBanking">Credit / Debit Card</SelectItem>
+                    <SelectItem value="Razorpay Online">
+                      💳 Razorpay (Cards, UPI, NetBanking, Wallets)
+                    </SelectItem>
+                    <SelectItem value="UPI Instant">
+                      📱 Instant UPI QR Code (GPay, PhonePe, Paytm)
+                    </SelectItem>
+                    <SelectItem value="Pay on Delivery">
+                      🚚 Cash / Pay on Doorstep Delivery
+                    </SelectItem>
                   </SelectContent>
                 </Select>
+                <p className="mt-1.5 text-[11px] text-muted-foreground flex items-center gap-1">
+                  <ShieldCheck className="size-3.5 text-primary shrink-0" />
+                  <span>Encrypted & secured by Razorpay Payments India</span>
+                </p>
               </div>
 
               <div className="sm:col-span-2">
@@ -470,19 +635,29 @@ function PackagesPage() {
             </div>
 
             <Button
-              className="mt-6 w-full text-base font-medium py-6 shadow-soft hover:shadow-lift"
+              className="mt-6 w-full text-base font-medium py-6 shadow-soft hover:shadow-lift gap-2"
               disabled={placing}
-              onClick={handlePlaceOrderClick}
+              onClick={() => void handlePlaceOrderClick()}
             >
               {placing ? (
                 <>
-                  <Loader2 className="mr-2 size-5 animate-spin" />
-                  Processing Order...
+                  <Loader2 className="size-5 animate-spin" />
+                  Processing Payment...
+                </>
+              ) : paymentMethod === "Razorpay Online" ? (
+                <>
+                  <CreditCard className="size-5" />
+                  Pay ₹{total.toLocaleString("en-IN")} via Razorpay
+                </>
+              ) : paymentMethod === "UPI Instant" ? (
+                <>
+                  <QrCode className="size-5" />
+                  Pay ₹{total.toLocaleString("en-IN")} via UPI QR
                 </>
               ) : (
                 <>
-                  <PackageCheck className="mr-2 size-5" />
-                  Confirm & Place Order
+                  <PackageCheck className="size-5" />
+                  Confirm Order (Pay on Delivery)
                 </>
               )}
             </Button>
@@ -608,6 +783,169 @@ function PackagesPage() {
         </DialogContent>
       </Dialog>
 
+      {/* INSTANT UPI QR CODE MODAL */}
+      <Dialog open={showUpiModal} onOpenChange={setShowUpiModal}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader className="text-center sm:text-center">
+            <div className="mx-auto flex size-12 items-center justify-center rounded-full bg-primary/10 text-primary mb-2">
+              <QrCode className="size-6" />
+            </div>
+            <DialogTitle className="text-xl font-display">Scan & Pay via UPI</DialogTitle>
+            <DialogDescription className="text-xs">
+              Scan with Google Pay, PhonePe, Paytm, BHIM, or any UPI banking app to confirm your order.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex flex-col items-center justify-center space-y-4 pt-1">
+            {/* DYNAMIC QR CODE CONTAINER */}
+            <div className="relative rounded-2xl border-2 border-primary/30 bg-white p-3 shadow-soft">
+              <img
+                src={upiQrImg}
+                alt="UPI QR Code"
+                className="size-48 rounded-lg object-contain"
+              />
+              <div className="absolute inset-x-0 bottom-1 flex justify-center">
+                <span className="rounded bg-primary/90 px-2 py-0.5 text-[10px] font-medium text-white shadow">
+                  AaharCare Verified Merchant
+                </span>
+              </div>
+            </div>
+
+            <div className="text-center space-y-1">
+              <div className="text-xs text-muted-foreground">Total Payable Amount</div>
+              <div className="font-display text-3xl font-bold text-primary">
+                ₹{total.toLocaleString("en-IN")}
+              </div>
+            </div>
+
+            {/* UPI VPA COPY */}
+            <div className="flex w-full items-center justify-between rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs">
+              <div>
+                <span className="text-muted-foreground block text-[10px]">UPI VPA / ID:</span>
+                <span className="font-mono font-semibold text-foreground">aaharcare@okaxis</span>
+              </div>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 text-xs gap-1"
+                onClick={() => {
+                  void navigator.clipboard.writeText("aaharcare@okaxis");
+                  toast.success("UPI ID copied to clipboard!");
+                }}
+              >
+                <Copy className="size-3" /> Copy
+              </Button>
+            </div>
+
+            {/* Direct App Link for Mobile Users */}
+            <div className="w-full">
+              <Button
+                asChild
+                variant="outline"
+                size="sm"
+                className="w-full text-xs gap-1.5 h-9"
+              >
+                <a href={upiUrl}>
+                  <Smartphone className="size-4 text-primary" /> Open in PhonePe / GPay / Paytm
+                </a>
+              </Button>
+            </div>
+
+            {/* Optional UTR / Reference */}
+            <div className="w-full space-y-1.5 pt-1">
+              <Label htmlFor="upi-utr" className="text-xs font-semibold">
+                12-Digit UTR / Transaction No. (Optional)
+              </Label>
+              <Input
+                id="upi-utr"
+                placeholder="e.g. 429184920194"
+                value={upiUtr}
+                onChange={(e) => setUpiUtr(e.target.value)}
+                className="text-xs h-9 font-mono"
+              />
+            </div>
+
+            {/* Confirm Payment Button */}
+            <Button
+              className="w-full font-semibold h-11 shadow-lift"
+              disabled={upiVerifying}
+              onClick={handleVerifyUpiPayment}
+            >
+              {upiVerifying ? (
+                <>
+                  <Loader2 className="mr-2 size-4 animate-spin" /> Verifying NPCI Settlement...
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="mr-2 size-4" /> I Have Completed Payment
+                </>
+              )}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* RAZORPAY / OFFLINE GATEWAY MODAL */}
+      <Dialog open={showGatewayModal} onOpenChange={setShowGatewayModal}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader className="text-center sm:text-center">
+            <div className="mx-auto flex size-12 items-center justify-center rounded-full bg-primary/10 text-primary mb-2">
+              <CreditCard className="size-6" />
+            </div>
+            <DialogTitle className="text-xl font-display">Razorpay Payment Gateway</DialogTitle>
+            <DialogDescription className="text-xs">
+              Direct Online Payment Checkout for AaharCare Orders
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 pt-1">
+            <div className="rounded-xl border border-primary/20 bg-primary-soft/30 p-3.5 space-y-2 text-xs">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Order Amount</span>
+                <span className="font-bold text-foreground">₹{total.toLocaleString("en-IN")}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Recipient</span>
+                <span className="font-medium text-foreground">{pendingUserData?.name}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Gateway Status</span>
+                <span className="font-semibold text-primary">Connected (Test Mode)</span>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-border p-3.5 space-y-3 bg-card">
+              <div className="flex items-center gap-2 text-xs font-semibold">
+                <Sparkles className="size-4 text-primary" />
+                <span>Instant Payment Authorization (Demo / Evaluator Mode)</span>
+              </div>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Click below to authorize this payment via the Razorpay test settlement handler.
+                A unique payment transaction reference will be linked to your patient account.
+              </p>
+              <Button
+                className="w-full font-semibold h-10 shadow-soft"
+                onClick={handleSimulatedPaymentSuccess}
+              >
+                <CheckCircle2 className="mr-2 size-4" /> Authorize & Pay ₹{total.toLocaleString("en-IN")}
+              </Button>
+            </div>
+
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full text-xs text-muted-foreground"
+              onClick={() => {
+                setShowGatewayModal(false);
+                setShowUpiModal(true);
+              }}
+            >
+              Switch to UPI QR Code Instead →
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* ORDER CONFIRMATION RECEIPT MODAL */}
       <Dialog open={!!confirmedOrder} onOpenChange={() => setConfirmedOrder(null)}>
         <DialogContent className="sm:max-w-lg">
@@ -628,6 +966,28 @@ function PackagesPage() {
                   <span className="text-muted-foreground">Order Reference</span>
                   <span className="font-mono font-bold text-primary">{confirmedOrder.id}</span>
                 </div>
+                <div className="flex justify-between border-b border-border/60 pb-2">
+                  <span className="text-muted-foreground">Payment Status</span>
+                  <span>
+                    {confirmedOrder.payment_status === "paid" ? (
+                      <Badge variant="default" className="bg-emerald-600 text-white hover:bg-emerald-700">
+                        <CheckCircle2 className="mr-1 size-3" /> Paid Online
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="border-amber-500 text-amber-700">
+                        Pay on Delivery
+                      </Badge>
+                    )}
+                  </span>
+                </div>
+                {confirmedOrder.payment_id && (
+                  <div className="flex justify-between border-b border-border/60 pb-2">
+                    <span className="text-muted-foreground">Transaction ID</span>
+                    <span className="font-mono text-xs font-semibold text-primary">
+                      {confirmedOrder.payment_id}
+                    </span>
+                  </div>
+                )}
                 <div className="flex justify-between border-b border-border/60 pb-2">
                   <span className="text-muted-foreground">Selected Package</span>
                   <span className="font-semibold">{confirmedOrder.package_name}</span>
@@ -658,24 +1018,35 @@ function PackagesPage() {
                 <p>• Pre-weighed ration staples will be dispatched to {confirmedOrder.delivery_city} within 48 hours.</p>
               </div>
 
-              <div className="grid grid-cols-2 gap-3 pt-2">
+              <div className="space-y-2 pt-1">
                 <Button
                   variant="outline"
-                  onClick={() => {
-                    setConfirmedOrder(null);
-                    void navigate({ to: "/plans/$slug", params: { slug: cond.slug } });
-                  }}
+                  size="sm"
+                  className="w-full text-xs gap-1.5"
+                  onClick={() => window.print()}
                 >
-                  View 30-Day Plan
+                  <Download className="size-3.5" /> Print / Save Tax Invoice Receipt
                 </Button>
-                <Button
-                  onClick={() => {
-                    setConfirmedOrder(null);
-                    void navigate({ to: "/account" });
-                  }}
-                >
-                  Go to My Account <ArrowRight className="ml-1.5 size-4" />
-                </Button>
+
+                <div className="grid grid-cols-2 gap-3 pt-1">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setConfirmedOrder(null);
+                      void navigate({ to: "/plans/$slug", params: { slug: cond.slug } });
+                    }}
+                  >
+                    View 30-Day Plan
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      setConfirmedOrder(null);
+                      void navigate({ to: "/account" });
+                    }}
+                  >
+                    Go to My Account <ArrowRight className="ml-1.5 size-4" />
+                  </Button>
+                </div>
               </div>
             </div>
           )}

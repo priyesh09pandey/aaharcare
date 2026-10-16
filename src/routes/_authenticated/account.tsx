@@ -2,7 +2,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { MessageCircle, Package, Loader2, LogOut, User, Calendar, MapPin, Phone } from "lucide-react";
+import { MessageCircle, Package, Loader2, LogOut, User, Calendar, MapPin, Phone, CheckCircle2, CreditCard } from "lucide-react";
 import { conditions } from "@/data/plans";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -223,6 +223,24 @@ function AccountPage() {
                         <div>
                           <span>Delivery to: </span>
                           <strong className="text-foreground">{o.delivery_city}</strong>
+                        </div>
+                        <div className="col-span-2 flex items-center justify-between rounded-lg bg-muted/40 px-2.5 py-1.5 mt-1 border border-border/40">
+                          <span className="flex items-center gap-1.5">
+                            {o.payment_status === "paid" ? (
+                              <CheckCircle2 className="size-3.5 text-primary shrink-0" />
+                            ) : (
+                              <CreditCard className="size-3.5 text-muted-foreground shrink-0" />
+                            )}
+                            <span>Payment: </span>
+                            <strong className={o.payment_status === "paid" ? "text-primary font-semibold" : "text-foreground"}>
+                              {o.payment_status === "paid" ? "Paid Online" : (o.payment_method || "Pay on Delivery")}
+                            </strong>
+                          </span>
+                          {o.payment_id && (
+                            <span className="font-mono text-[11px] text-muted-foreground">
+                              Ref: {o.payment_id}
+                            </span>
+                          )}
                         </div>
                       </div>
 

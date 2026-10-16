@@ -32,6 +32,8 @@ export type OrderItem = {
   delivery_city: string;
   delivery_address?: string;
   payment_method?: string;
+  payment_id?: string;
+  payment_status?: "paid" | "pending" | "cod";
   status: "pending" | "confirmed" | "preparing" | "shipped" | "delivered";
   created_at: string;
 };
@@ -137,7 +139,9 @@ export function initDemoData() {
           contact_phone: "+91 98765 43210",
           delivery_city: "New Delhi",
           delivery_address: "B-42, Connaught Place",
-          payment_method: "Cash on Delivery",
+          payment_method: "Razorpay (Online)",
+          payment_id: "pay_Nzk492817x2",
+          payment_status: "paid",
           status: "confirmed",
           created_at: new Date(Date.now() - 86400000 * 2).toISOString(),
         },
