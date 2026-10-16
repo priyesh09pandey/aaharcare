@@ -9,22 +9,33 @@ export function useAuth() {
   useEffect(() => {
     let active = true;
 
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, next) => {
-      if (!active) return;
-      setSession(next);
-      setLoading(false);
-    });
+    try {
+      const { data: sub } = supabase.auth.onAuthStateChange((_event, next) => {
+        if (!active) return;
+        setSession(next);
+        setLoading(false);
+      });
 
-    void supabase.auth.getSession().then(({ data }) => {
-      if (!active) return;
-      setSession(data.session);
-      setLoading(false);
-    });
+      void supabase.auth
+        .getSession()
+        .then(({ data }) => {
+          if (!active) return;
+          setSession(data?.session ?? null);
+          setLoading(false);
+        })
+        .catch((err) => {
+          console.warn("Could not retrieve auth session:", err);
+          if (active) setLoading(false);
+        });
 
-    return () => {
-      active = false;
-      sub.subscription.unsubscribe();
-    };
+      return () => {
+        active = false;
+        sub?.subscription?.unsubscribe();
+      };
+    } catch (err) {
+      console.warn("Auth setup caught exception:", err);
+      setLoading(false);
+    }
   }, []);
 
   const user: User | null = session?.user ?? null;
